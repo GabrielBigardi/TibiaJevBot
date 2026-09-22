@@ -1,6 +1,6 @@
 # 🛡️ Jev Tibia 8.60 Autonomous Bot
 
-An autonomous game-playing decision engine for **Tibia 8.60 (Open Tibia / OTServ)** powered by **TypeSafe AI's Jev** System One model.
+An autonomous game-playing decision engine for **Tibia (Open Tibia / OTServ)** powered by **TypeSafe AI's Jev** System One model.
 
 Unlike conversational LLMs that take 2-3 seconds to generate text, Jev returns **typed probabilistic judgments in ~250ms**, making it fast enough to keep pace with Tibia's 200ms global cooldowns, monster combos, and kiting mechanics.
 
