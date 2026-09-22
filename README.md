@@ -51,7 +51,6 @@ Unlike conversational LLMs that take 2-3 seconds to generate text, Jev returns *
 You can immediately watch Jev fight in an Ankrahmun Dragon Lair simulation directly in your terminal:
 
 ```bash
-cd /home/gabriel/antigravity/jev/02-tibia-bot
 npm run simulate
 ```
 
