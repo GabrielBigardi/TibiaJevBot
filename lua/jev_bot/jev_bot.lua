@@ -8,6 +8,7 @@ local macroLbl = nil
 local decisionLbl = nil
 local waypointLbl = nil
 local lootLbl = nil
+local patrolModeBtn = nil
 local vocationBtn = nil
 local healSpellEdit = nil
 local atkSpellEdit = nil
@@ -16,9 +17,25 @@ local topButton = nil
 local isBotEnabled = false
 local tickEvent = nil
 local tickCounter = 0
-local serverUrl = "http://127.0.0.1:3000/tick"
+local serverUrl = "http://192.168.1.101:3000/tick"
 local isWaitingResponse = false
 local requestTimestamp = 0
+
+-- Cooldown tracking (in milliseconds)
+local lastSpellCastTime = 0
+local lastHealCastTime = 0
+local lastAttackCastTime = 0
+local lastItemUseTime = 0
+
+local function nowMs()
+  if g_clock and g_clock.millis then
+    return g_clock.millis()
+  end
+  if socket and socket.gettime then
+    return math.floor(socket.gettime() * 1000)
+  end
+  return math.floor(os.clock() * 1000)
+end
 
 -- Vocations
 local vocations = { "Knight", "Paladin", "Sorcerer", "Druid" }
@@ -28,10 +45,13 @@ local autoDetectedVocation = false
 -- Cavebot Waypoints State
 local waypoints = {}
 local currentWaypointIndex = 1
+local patrolMode = "ping_pong" -- "ping_pong" (1-2-3-4-3-2-1) or "loop" (1-2-3-4-1)
+local patrolDirection = 1      -- 1 = forward, -1 = reverse
 local lootedCorpses = {} -- [key: "x,y,z"] = timestamp
 local unreachableTicks = 0
 local ticksOnCurrentWp = 0
 local lastWpIndex = 1
+local currentWalkDest = nil
 
 -- Direction offsets and Enums
 local dirOffsets = {
@@ -67,7 +87,7 @@ local showWindow, hideWindow, toggleWindow, startBot, stopBot, toggleBot
 local runTick, executeActions, autoWalkTo, safeWalk, lootCorpseAt, isTileWalkable
 local addCurrentWaypoint, clearWaypoints, skipWaypoint, updateWaypointLabel
 local cycleVocation, applyVocationDefaults, generateCavePatrol
-local lootOpenContainers, isItemValuable
+local lootOpenContainers, isItemValuable, cyclePatrolMode, advanceWaypoint
 
 local function safeCall(obj, method, fallback)
   if obj and obj[method] and type(obj[method]) == "function" then
@@ -213,31 +233,84 @@ function cycleVocation()
   print("[JevBot] Vocation set to: " .. voc)
 end
 
+function cyclePatrolMode()
+  if patrolMode == "ping_pong" then
+    patrolMode = "loop"
+  else
+    patrolMode = "ping_pong"
+  end
+  if patrolModeBtn then
+    if patrolMode == "ping_pong" then
+      patrolModeBtn:setText(tr('Patrol Mode: Ping-Pong (1-2-3-4-3-2-1)'))
+    else
+      patrolModeBtn:setText(tr('Patrol Mode: Loop (1-2-3-4-1)'))
+    end
+  end
+  updateWaypointLabel()
+  print("[JevBot] Waypoint patrol mode switched to: " .. patrolMode)
+end
+
 function updateWaypointLabel()
   if not waypointLbl then return end
   local player = g_game.getLocalPlayer()
   local currentZ = player and player:getPosition() and player:getPosition().z or 7
+  local modeStr = patrolMode == "ping_pong" and (patrolDirection == 1 and "PP-Fwd" or "PP-Rev") or "Loop"
 
   if #waypoints == 0 then
     waypointLbl:setText(tr('Waypoints: None (will auto-patrol floor Z=%d)', currentZ))
   else
     local nextWp = waypoints[currentWaypointIndex] or waypoints[1]
     if nextWp.z ~= currentZ then
-      waypointLbl:setText(tr('WPs: %d/%d (WP Floor Z=%d != Your Z=%d)', currentWaypointIndex, #waypoints, nextWp.z, currentZ))
+      waypointLbl:setText(tr('WPs: %d/%d [%s] (WP Floor Z=%d != Your Z=%d)', currentWaypointIndex, #waypoints, modeStr, nextWp.z, currentZ))
     else
-      waypointLbl:setText(tr('WPs: %d/%d [Z:%d] (Next: %d,%d)', currentWaypointIndex, #waypoints, nextWp.z, nextWp.x, nextWp.y))
+      waypointLbl:setText(tr('WPs: %d/%d [%s Z:%d] (Next: %d,%d)', currentWaypointIndex, #waypoints, modeStr, nextWp.z, nextWp.x, nextWp.y))
     end
   end
 end
 
-function skipWaypoint()
+function advanceWaypoint()
   if #waypoints == 0 then return end
-  currentWaypointIndex = (currentWaypointIndex % #waypoints) + 1
+  if #waypoints == 1 then
+    currentWaypointIndex = 1
+    unreachableTicks = 0
+    ticksOnCurrentWp = 0
+    updateWaypointLabel()
+    return
+  end
+
+  if patrolMode == "ping_pong" then
+    if patrolDirection == 1 then
+      if currentWaypointIndex >= #waypoints then
+        patrolDirection = -1
+        currentWaypointIndex = #waypoints - 1
+      else
+        currentWaypointIndex = currentWaypointIndex + 1
+      end
+    else -- reverse direction (-1)
+      if currentWaypointIndex <= 1 then
+        patrolDirection = 1
+        currentWaypointIndex = 2
+      else
+        currentWaypointIndex = currentWaypointIndex - 1
+      end
+    end
+  else -- "loop"
+    currentWaypointIndex = (currentWaypointIndex % #waypoints) + 1
+  end
+
   unreachableTicks = 0
   ticksOnCurrentWp = 0
+  currentWalkDest = nil
   updateWaypointLabel()
   local nextWp = waypoints[currentWaypointIndex]
-  print(string.format("[JevBot] Skipped to waypoint #%d at (%d, %d, %d)", currentWaypointIndex, nextWp.x, nextWp.y, nextWp.z))
+  if nextWp then
+    print(string.format("[JevBot] Advanced to waypoint #%d (%d, %d, %d) [%s dir=%d]",
+      currentWaypointIndex, nextWp.x, nextWp.y, nextWp.z, patrolMode, patrolDirection))
+  end
+end
+
+function skipWaypoint()
+  advanceWaypoint()
 end
 
 function addCurrentWaypoint()
@@ -257,8 +330,10 @@ end
 function clearWaypoints()
   waypoints = {}
   currentWaypointIndex = 1
+  patrolDirection = 1
   unreachableTicks = 0
   ticksOnCurrentWp = 0
+  currentWalkDest = nil
   print("[JevBot] Waypoints cleared.")
   updateWaypointLabel()
 end
@@ -308,6 +383,14 @@ function ensureWindow()
       vocationBtn = botWindow:getChildById('vocationButton')
       healSpellEdit = botWindow:getChildById('healSpellEdit')
       atkSpellEdit = botWindow:getChildById('atkSpellEdit')
+      patrolModeBtn = botWindow:getChildById('patrolModeButton')
+      if patrolModeBtn then
+        if patrolMode == "ping_pong" then
+          patrolModeBtn:setText(tr('Patrol Mode: Ping-Pong (1-2-3-4-3-2-1)'))
+        else
+          patrolModeBtn:setText(tr('Patrol Mode: Loop (1-2-3-4-1)'))
+        end
+      end
       updateWaypointLabel()
     end
   end)
@@ -340,6 +423,7 @@ function init()
     _G.commandEnv.jev_skip_wp = skipWaypoint
     _G.commandEnv.jev_clear_wp = clearWaypoints
     _G.commandEnv.jev_voc = cycleVocation
+    _G.commandEnv.jev_patrol = cyclePatrolMode
   end
 
   -- Safely attempt top-menu button registration
@@ -413,6 +497,7 @@ function startBot()
   isWaitingResponse = false
   unreachableTicks = 0
   ticksOnCurrentWp = 0
+  currentWalkDest = nil
 
   -- Auto-generate cave-aware patrol waypoints along walkable floor if none recorded
   local player = g_game.getLocalPlayer()
@@ -421,6 +506,7 @@ function startBot()
     if p then
       waypoints = generateCavePatrol(p)
       currentWaypointIndex = 1
+      patrolDirection = 1
       print(string.format("[JevBot] Generated %d cave-aware floor waypoints on Z=%d", #waypoints, p.z))
     end
   end
@@ -439,6 +525,7 @@ function stopBot()
     removeEvent(tickEvent)
     tickEvent = nil
   end
+  currentWalkDest = nil
   print("[JevBot] Bot stopped.")
 end
 
@@ -513,6 +600,7 @@ function safeWalk(action)
   end
 end
 
+-- Smooth, fluid auto-walk (avoids wasteful 1 SQM stutter steps)
 function autoWalkTo(destination)
   if not destination then return end
   local player = g_game.getLocalPlayer()
@@ -520,67 +608,77 @@ function autoWalkTo(destination)
   local playerPos = player:getPosition()
   if not playerPos then return end
 
-  -- 1. Floor / Z-level check: cannot auto-walk to a different Z level!
+  -- 1. Floor / Z-level check
   if destination.z ~= playerPos.z then
     unreachableTicks = unreachableTicks + 1
     if unreachableTicks >= 3 then
-      print(string.format("[JevBot] Waypoint on floor Z=%d is not on current floor Z=%d. Skipping.", destination.z, playerPos.z))
-      skipWaypoint()
+      print(string.format("[JevBot] Waypoint on floor Z=%d is not on current floor Z=%d. Advancing.", destination.z, playerPos.z))
+      advanceWaypoint()
     end
     return
   end
 
-  -- 2. Validate path with g_map.findPath BEFORE calling autoWalk to eliminate "Não há rota"
-  local hasPath = false
-  local nextStep = nil
+  -- 2. Check if player is ALREADY smoothly walking towards this destination
+  local isAlreadyWalking = false
+  pcall(function()
+    if player.isAutoWalking and player:isAutoWalking() then
+      isAlreadyWalking = true
+    elseif g_game.isAutoWalking and g_game.isAutoWalking() then
+      isAlreadyWalking = true
+    end
+  end)
 
+  -- If character is already running fluidly to this waypoint, let it run!
+  if isAlreadyWalking and currentWalkDest and
+     currentWalkDest.x == destination.x and
+     currentWalkDest.y == destination.y and
+     currentWalkDest.z == destination.z then
+    return
+  end
+
+  -- 3. Pre-validate path with g_map.findPath to eliminate "Não há rota"
+  local calculatedPath = nil
   pcall(function()
     if g_map.findPath then
-      local path = g_map.findPath(playerPos, destination, 50, 0)
+      local path = g_map.findPath(playerPos, destination, 100, 0)
       if path and #path > 0 then
-        hasPath = true
-        nextStep = path[1]
+        calculatedPath = path
       end
     end
   end)
 
-  if not hasPath then
+  if g_map.findPath and not calculatedPath then
     unreachableTicks = unreachableTicks + 1
-    -- If no route exists for 3 consecutive checks, skip to next waypoint automatically
     if unreachableTicks >= 3 then
-      print(string.format("[JevBot] No route to waypoint #%d (%d,%d,Z%d) -> skipping to next waypoint!", currentWaypointIndex, destination.x, destination.y, destination.z))
-      skipWaypoint()
+      print(string.format("[JevBot] No route to waypoint #%d (%d,%d,Z%d) -> auto-skipping.", currentWaypointIndex, destination.x, destination.y, destination.z))
+      advanceWaypoint()
     end
     return
   end
 
-  -- Path exists! Reset unreachable ticks
   unreachableTicks = 0
+  currentWalkDest = { x = destination.x, y = destination.y, z = destination.z }
 
-  -- 3. Execute walk step
-  if nextStep then
-    g_game.walk(nextStep)
-    return
-  end
+  -- 4. Initiate continuous fluid auto-walk across the entire path (continuous motion)
+  local walked = false
 
-  -- 4. Try player:autoWalk or g_game.autoWalk
-  local okGame = pcall(function()
-    if g_game.autoWalk then
-      g_game.autoWalk(destination)
-      return true
-    end
-    return false
-  end)
-  if okGame and g_game.isAutoWalking and g_game.isAutoWalking() then return end
-
-  local okPlayer = pcall(function()
+  -- Primary: player:autoWalk accepts coordinate {x, y, z}
+  pcall(function()
     if player.autoWalk then
       player:autoWalk(destination)
-      return true
+      walked = true
     end
-    return false
   end)
-  if okPlayer and player.isAutoWalking and player:isAutoWalking() then return end
+
+  -- Secondary: g_game.autoWalk accepts direction array (vector<Direction>)
+  if (not walked or (player.isAutoWalking and not player:isAutoWalking())) and calculatedPath then
+    pcall(function()
+      if g_game.autoWalk then
+        g_game.autoWalk(calculatedPath)
+        walked = true
+      end
+    end)
+  end
 end
 
 function lootCorpseAt(position)
@@ -739,17 +837,14 @@ function runTick()
       if currentWp then
         local wpDist = math.max(math.abs(playerPos.x - currentWp.x), math.abs(playerPos.y - currentWp.y))
         if wpDist <= 1 and playerPos.z == currentWp.z then
-          currentWaypointIndex = (currentWaypointIndex % #waypoints) + 1
-          unreachableTicks = 0
-          ticksOnCurrentWp = 0
-          updateWaypointLabel()
+          advanceWaypoint()
         else
           if lastWpIndex == currentWaypointIndex then
             ticksOnCurrentWp = ticksOnCurrentWp + 1
-            -- If stuck on same waypoint for > 20 ticks (~8s) without reaching it, skip
+            -- If stuck on same waypoint for > 20 ticks (~5s) without reaching it, skip
             if ticksOnCurrentWp >= 20 then
               print(string.format("[JevBot] Stuck trying to reach waypoint #%d -> auto-skipping.", currentWaypointIndex))
-              skipWaypoint()
+              advanceWaypoint()
             end
           else
             lastWpIndex = currentWaypointIndex
@@ -763,6 +858,12 @@ function runTick()
     local currentVoc = vocations[currentVocationIndex]
     local customHeal = healSpellEdit and healSpellEdit:getText() or ""
     local customAtk = atkSpellEdit and atkSpellEdit:getText() or ""
+
+    local currentMs = nowMs()
+    local spellCdRem = math.max(0, 1000 - (currentMs - lastSpellCastTime))
+    local healCdRem = math.max(0, 1000 - (currentMs - lastHealCastTime))
+    local attackCdRem = math.max(0, 2000 - (currentMs - lastAttackCastTime))
+    local itemCdRem = math.max(0, 1000 - (currentMs - lastItemUseTime))
 
     local payload = {
       tickNumber = tickCounter,
@@ -792,6 +893,13 @@ function runTick()
       nextWaypoint = nextWp,
       waypointIndex = currentWaypointIndex,
       totalWaypoints = #waypoints,
+      patrolMode = patrolMode,
+      cooldowns = {
+        spellCooldownRemainingMs = spellCdRem,
+        healCooldownRemainingMs = healCdRem,
+        attackCooldownRemainingMs = attackCdRem,
+        itemCooldownRemainingMs = itemCdRem,
+      },
       inventory = {
         healingPotions = 20,
         manaPotions = 100,
@@ -853,7 +961,32 @@ function executeActions(actions)
   for _, action in ipairs(actions) do
     pcall(function()
       if action.type == "say" and action.text then
-        g_game.talk(action.text)
+        local text = action.text:lower()
+        local isSpell = text:find("^ex") or text:find("^ut") or text:find("^ad")
+        if isSpell then
+          local t = nowMs()
+          local isHeal = text:find("exura") or text:find("ico") or text:find("san") or text:find("vita") or text:find("gran")
+          if t - lastSpellCastTime < 1000 then
+            -- Global spell cooldown active: drop packet to avoid exhaustion
+            return
+          end
+          if isHeal and (t - lastHealCastTime < 1000) then
+            return
+          end
+          if not isHeal and (t - lastAttackCastTime < 2000) then
+            return
+          end
+
+          g_game.talk(action.text)
+          lastSpellCastTime = t
+          if isHeal then
+            lastHealCastTime = t
+          else
+            lastAttackCastTime = t
+          end
+        else
+          g_game.talk(action.text)
+        end
       elseif action.type == "attack" and action.targetId then
         local creature = g_map.getCreatureById(action.targetId)
         if creature then
@@ -868,15 +1001,22 @@ function executeActions(actions)
       elseif action.type == "hold" then
         -- Maintain position
       elseif action.type == "use_item" and action.itemId then
+        local t = nowMs()
+        if t - lastItemUseTime < 1000 then
+          -- Item cooldown active: drop packet to avoid exhaustion
+          return
+        end
         if action.targetId then
           local creature = g_map.getCreatureById(action.targetId)
           if creature then
             g_game.useInventoryItemWith(action.itemId, creature)
+            lastItemUseTime = t
           end
         else
           local player = g_game.getLocalPlayer()
           if player then
             g_game.useInventoryItemWith(action.itemId, player)
+            lastItemUseTime = t
           end
         end
       end
@@ -896,4 +1036,6 @@ modules.jev_bot = {
   skipWaypoint = skipWaypoint,
   clearWaypoints = clearWaypoints,
   cycleVocation = cycleVocation,
+  cyclePatrolMode = cyclePatrolMode,
+  advanceWaypoint = advanceWaypoint,
 }

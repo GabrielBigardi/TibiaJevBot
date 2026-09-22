@@ -161,20 +161,27 @@ export class JevTibiaBrain {
     const hasCorpses = state.corpses && state.corpses.length > 0;
     const hasWaypoints = Boolean(state.nextWaypoint);
 
+    const canCastSpell = (state.cooldowns?.spellCooldownRemainingMs ?? 0) <= 0;
+    const canCastHeal = canCastSpell && (state.cooldowns?.healCooldownRemainingMs ?? 0) <= 0;
+    const canCastAttack = canCastSpell && (state.cooldowns?.attackCooldownRemainingMs ?? 0) <= 0;
+    const canUseItem = (state.cooldowns?.itemCooldownRemainingMs ?? 0) <= 0;
+
     // Build vocation-accurate survival choices
     const survivalChoices: Record<string, string> = {};
-    if (profile.heavyHeal) {
+    if (canCastHeal && profile.heavyHeal) {
       survivalChoices["cast_heavy_heal"] = `HP is critically low (< 40%); cast ${profile.heavyHeal}`;
     }
-    if (profile.mediumHeal) {
+    if (canCastHeal && profile.mediumHeal) {
       survivalChoices["cast_medium_heal"] = `HP is moderately low (40% - 75%); cast ${profile.mediumHeal}`;
     }
-    if (profile.lightHeal) {
+    if (canCastHeal && profile.lightHeal) {
       survivalChoices["cast_light_heal"] = `HP is slightly wounded (75% - 90%); cast ${profile.lightHeal}`;
     }
-    survivalChoices["use_health_potion"] = "HP is low; drink health potion";
-    survivalChoices["use_mana_potion"] = "HP is safe (> 80%) but mana is below 60%; drink mana potion";
-    if (profile.magicShield) {
+    if (canUseItem) {
+      survivalChoices["use_health_potion"] = "HP is low; drink health potion";
+      survivalChoices["use_mana_potion"] = "HP is safe (> 80%) but mana is below 60%; drink mana potion";
+    }
+    if (canCastSpell && profile.magicShield) {
       survivalChoices["cast_magic_shield"] = `Severe burst danger; cast ${profile.magicShield} (magic shield)`;
     }
     survivalChoices["none"] = "HP and mana are healthy, no survival action required";
@@ -236,13 +243,13 @@ export class JevTibiaBrain {
       );
 
       const offenseChoices: Record<string, string> = {};
-      if (profile.attackSpell) {
+      if (canCastAttack && profile.attackSpell) {
         offenseChoices["cast_attack_spell"] = `Cast ${profile.attackSpell} for damage`;
       }
-      if (state.inventory.sdRunes > 0 && state.player.level >= 45) {
+      if (canUseItem && state.inventory.sdRunes > 0 && state.player.level >= 45) {
         offenseChoices["rune_sd"] = "Fire Sudden Death (SD) rune for high burst damage";
       }
-      if (state.inventory.areaRunes > 0 && state.player.level >= 30) {
+      if (canUseItem && state.inventory.areaRunes > 0 && state.player.level >= 30) {
         offenseChoices["rune_area"] = "Fire area rune (GFB/Avalanche) against grouped monsters";
       }
       offenseChoices["auto_attack"] = "Standard weapon attack (0 mana cost)";
@@ -345,6 +352,11 @@ export class JevTibiaBrain {
     const hasCorpses = state.corpses && state.corpses.length > 0;
     const hasWaypoints = Boolean(state.nextWaypoint);
 
+    const canCastSpell = (state.cooldowns?.spellCooldownRemainingMs ?? 0) <= 0;
+    const canCastHeal = canCastSpell && (state.cooldowns?.healCooldownRemainingMs ?? 0) <= 0;
+    const canCastAttack = canCastSpell && (state.cooldowns?.attackCooldownRemainingMs ?? 0) <= 0;
+    const canUseItem = (state.cooldowns?.itemCooldownRemainingMs ?? 0) <= 0;
+
     let macroState: "COMBAT" | "LOOT" | "EXPLORE_CAVE" | "RECOVER" = "EXPLORE_CAVE";
     if (hasMonsters) {
       macroState = "COMBAT";
@@ -361,24 +373,28 @@ export class JevTibiaBrain {
     let dangerProbability = 0.05;
 
     if (hpRatio < 0.4) {
-      if (profile.heavyHeal && state.player.mana >= 80) {
+      if (canCastHeal && profile.heavyHeal && state.player.mana >= 80) {
         survivalAction = "cast_heavy_heal";
-      } else {
+      } else if (canUseItem) {
         survivalAction = "use_health_potion";
+      } else if (canCastHeal && profile.lightHeal && state.player.mana >= 20) {
+        survivalAction = "cast_light_heal";
       }
       isCriticalDanger = true;
       dangerProbability = 0.94;
     } else if (hpRatio < 0.75) {
-      if (profile.mediumHeal && state.player.mana >= 40) {
+      if (canCastHeal && profile.mediumHeal && state.player.mana >= 40) {
         survivalAction = "cast_medium_heal";
-      } else {
+      } else if (canUseItem) {
         survivalAction = "use_health_potion";
+      } else if (canCastHeal && profile.lightHeal && state.player.mana >= 20) {
+        survivalAction = "cast_light_heal";
       }
       dangerProbability = 0.55;
-    } else if (hpRatio < 0.9 && profile.lightHeal && state.player.mana >= 20) {
+    } else if (hpRatio < 0.9 && canCastHeal && profile.lightHeal && state.player.mana >= 20) {
       survivalAction = "cast_light_heal";
       dangerProbability = 0.2;
-    } else if (manaRatio < 0.6 && state.inventory.manaPotions > 0) {
+    } else if (manaRatio < 0.6 && canUseItem && state.inventory.manaPotions > 0) {
       survivalAction = "use_mana_potion";
     }
 
@@ -396,7 +412,7 @@ export class JevTibiaBrain {
       selectedTargetId = best.id;
       selectedTargetName = best.name;
 
-      if (profile.attackSpell && state.player.mana >= 40) {
+      if (canCastAttack && profile.attackSpell && state.player.mana >= 40) {
         offensiveAction = "cast_attack_spell";
       } else {
         offensiveAction = "auto_attack";
@@ -467,18 +483,23 @@ export class JevTibiaBrain {
   ): BotAction[] {
     const actions: BotAction[] = [];
 
+    const canCastSpell = (state.cooldowns?.spellCooldownRemainingMs ?? 0) <= 0;
+    const canCastHeal = canCastSpell && (state.cooldowns?.healCooldownRemainingMs ?? 0) <= 0;
+    const canCastAttack = canCastSpell && (state.cooldowns?.attackCooldownRemainingMs ?? 0) <= 0;
+    const canUseItem = (state.cooldowns?.itemCooldownRemainingMs ?? 0) <= 0;
+
     // 1. Survival & Healing (Priority 1)
-    if (survivalAction === "cast_heavy_heal" && profile.heavyHeal) {
+    if (survivalAction === "cast_heavy_heal" && profile.heavyHeal && canCastHeal) {
       actions.push({ type: "say", text: profile.heavyHeal });
-    } else if (survivalAction === "cast_medium_heal" && profile.mediumHeal) {
+    } else if (survivalAction === "cast_medium_heal" && profile.mediumHeal && canCastHeal) {
       actions.push({ type: "say", text: profile.mediumHeal });
-    } else if (survivalAction === "cast_light_heal" && profile.lightHeal) {
+    } else if (survivalAction === "cast_light_heal" && profile.lightHeal && canCastHeal) {
       actions.push({ type: "say", text: profile.lightHeal });
-    } else if (survivalAction === "cast_magic_shield" && profile.magicShield) {
+    } else if (survivalAction === "cast_magic_shield" && profile.magicShield && canCastSpell) {
       actions.push({ type: "say", text: profile.magicShield });
-    } else if (survivalAction === "use_health_potion") {
+    } else if (survivalAction === "use_health_potion" && canUseItem) {
       actions.push({ type: "use_item", itemId: profile.healthPotionId });
-    } else if (survivalAction === "use_mana_potion") {
+    } else if (survivalAction === "use_mana_potion" && canUseItem) {
       actions.push({ type: "use_item", itemId: profile.manaPotionId });
     }
 
@@ -488,11 +509,11 @@ export class JevTibiaBrain {
     }
 
     if (targetId) {
-      if (offensiveAction === "cast_attack_spell" && profile.attackSpell) {
+      if (offensiveAction === "cast_attack_spell" && profile.attackSpell && canCastAttack) {
         actions.push({ type: "say", text: profile.attackSpell });
-      } else if (offensiveAction === "rune_sd" && state.player.level >= 45) {
+      } else if (offensiveAction === "rune_sd" && state.player.level >= 45 && canUseItem) {
         actions.push({ type: "use_item", itemId: 3155, targetId });
-      } else if (offensiveAction === "rune_area" && state.player.level >= 30) {
+      } else if (offensiveAction === "rune_area" && state.player.level >= 30 && canUseItem) {
         actions.push({ type: "use_item", itemId: 3191, targetId });
       }
     }

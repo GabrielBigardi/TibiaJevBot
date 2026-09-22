@@ -108,8 +108,10 @@ const server = http.createServer(async (req, res) => {
   res.end("Not Found");
 });
 
-server.listen(PORT, () => {
-  console.log(`Server ready on port ${PORT}`);
+const HOST = process.env.HOST || "0.0.0.0";
+
+server.listen(PORT, HOST, () => {
+  console.log(`Server ready on http://${HOST}:${PORT}`);
 });
 
 export { server, brain };

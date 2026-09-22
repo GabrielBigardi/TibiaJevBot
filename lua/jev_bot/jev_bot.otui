@@ -1,7 +1,7 @@
 MainWindow
   id: jevBotWindow
   !text: tr('Jev AI Bot (Cavebot & Combat)')
-  size: 340 395
+  size: 340 430
   @onEscape: modules.jev_bot.hide()
 
   Label
@@ -108,9 +108,19 @@ MainWindow
     height: 22
 
   Button
+    id: patrolModeButton
+    !text: tr('Patrol Mode: Ping-Pong (1-2-3-4-3-2-1)')
+    anchors.top: atkSpellEdit.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+    height: 24
+    @onClick: modules.jev_bot.cyclePatrolMode()
+
+  Button
     id: addWpButton
     !text: tr('+ Add WP (Ctrl+W)')
-    anchors.top: atkSpellEdit.bottom
+    anchors.top: patrolModeButton.bottom
     anchors.left: parent.left
     anchors.right: parent.horizontalCenter
     margin-top: 8
@@ -121,7 +131,7 @@ MainWindow
   Button
     id: skipWpButton
     !text: tr('Skip WP')
-    anchors.top: atkSpellEdit.bottom
+    anchors.top: patrolModeButton.bottom
     anchors.left: parent.horizontalCenter
     anchors.right: parent.right
     margin-top: 8
@@ -133,7 +143,7 @@ MainWindow
   Button
     id: clearWpButton
     !text: tr('Clear')
-    anchors.top: atkSpellEdit.bottom
+    anchors.top: patrolModeButton.bottom
     anchors.left: skipWpButton.right
     anchors.right: parent.right
     margin-top: 8

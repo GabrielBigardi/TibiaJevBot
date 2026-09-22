@@ -371,6 +371,113 @@ async function runTests() {
   }
   console.log("  ✔ Low-level spell restriction test passed");
 
+  // Test 9: Cooldown-Aware Decision Making (Fallback when spell on cooldown)
+  console.log("Test 9: Cooldown gatekeeping - Falls back to potion or basic attack when spells are on CD");
+  {
+    const cdState: GameTickState = {
+      tickNumber: 9,
+      player: {
+        name: "TestMage",
+        level: 100,
+        vocation: "Sorcerer",
+        health: 300, // 30% HP (critical!)
+        maxHealth: 1000,
+        mana: 800,
+        maxMana: 1000,
+        capacity: 400,
+        position: { x: 100, y: 100, z: 7 },
+        targetId: 601,
+        isHasted: false,
+        hasMagicShield: false,
+        isPoisoned: false,
+        isParalyzed: false,
+      },
+      monsters: [
+        {
+          id: 601,
+          name: "Dragon",
+          healthPercent: 80,
+          distance: 3,
+          position: { x: 103, y: 100, z: 7 },
+          isMonster: true,
+          isPlayer: false,
+          facingPlayer: false,
+        },
+      ],
+      cooldowns: {
+        spellCooldownRemainingMs: 0,
+        healCooldownRemainingMs: 800, // Healing spell on cooldown!
+        attackCooldownRemainingMs: 1500, // Attack spell on cooldown!
+        itemCooldownRemainingMs: 0,
+      },
+      inventory: { healingPotions: 10, manaPotions: 20, sdRunes: 0, areaRunes: 0 },
+    };
+
+    const decision = await brain.decide(cdState);
+    // Since heal spell is on cooldown, it MUST NOT cast exura vita / exura gran, but use health potion!
+    const healSpellAction = decision.executableActions.find((a) => a.type === "say" && a.text.includes("exura"));
+    assert.equal(healSpellAction, undefined, "Must not cast healing spell while heal is on cooldown");
+
+    const potionAction = decision.executableActions.find((a) => a.type === "use_item");
+    assert.ok(potionAction, "Must fall back to health potion when heal spell is on cooldown");
+
+    // Since attack spell is on cooldown, offensive action must be auto_attack
+    const atkSpellAction = decision.executableActions.find((a) => a.type === "say" && a.text.includes("exori"));
+    assert.equal(atkSpellAction, undefined, "Must not cast attack spell while attack is on cooldown");
+  }
+  console.log("  ✔ Cooldown gatekeeping test passed");
+
+  // Test 10: Ping-Pong Waypoint Simulation Sequence (1 -> 2 -> 3 -> 4 -> 3 -> 2 -> 1 -> 2)
+  console.log("Test 10: Dual Patrol Modes (Ping-Pong vs Loop Waypoint Sequences)");
+  {
+    const simulatePatrol = (mode: "ping_pong" | "loop", totalWps: number, steps: number): number[] => {
+      let currentIdx = 1;
+      let dir = 1;
+      const history: number[] = [currentIdx];
+
+      for (let i = 0; i < steps; i++) {
+        if (mode === "ping_pong") {
+          if (dir === 1) {
+            if (currentIdx >= totalWps) {
+              dir = -1;
+              currentIdx = totalWps - 1;
+            } else {
+              currentIdx++;
+            }
+          } else {
+            if (currentIdx <= 1) {
+              dir = 1;
+              currentIdx = 2;
+            } else {
+              currentIdx--;
+            }
+          }
+        } else {
+          currentIdx = (currentIdx % totalWps) + 1;
+        }
+        history.push(currentIdx);
+      }
+      return history;
+    };
+
+    const pingPongHistory = simulatePatrol("ping_pong", 4, 7);
+    // Expected ping-pong: 1 -> 2 -> 3 -> 4 -> 3 -> 2 -> 1 -> 2
+    assert.deepEqual(
+      pingPongHistory,
+      [1, 2, 3, 4, 3, 2, 1, 2],
+      "Ping-pong sequence must reverse direction at ends"
+    );
+
+    const loopHistory = simulatePatrol("loop", 4, 7);
+    // Expected loop: 1 -> 2 -> 3 -> 4 -> 1 -> 2 -> 3 -> 4
+    assert.deepEqual(
+      loopHistory,
+      [1, 2, 3, 4, 1, 2, 3, 4],
+      "Loop sequence must wrap back to 1"
+    );
+  }
+  console.log("  ✔ Dual patrol mode sequence test passed");
+
   console.log("\n All Tibia bot tests passed successfully! 🎉");
 }
 

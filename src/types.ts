@@ -47,6 +47,13 @@ export interface CorpseInfo {
   distance: number;
 }
 
+export interface CooldownState {
+  spellCooldownRemainingMs?: number;
+  healCooldownRemainingMs?: number;
+  attackCooldownRemainingMs?: number;
+  itemCooldownRemainingMs?: number;
+}
+
 export interface InventoryState {
   healingPotions: number;
   manaPotions: number;
@@ -62,6 +69,8 @@ export interface GameTickState {
   nextWaypoint?: Position | null;
   waypointIndex?: number;
   totalWaypoints?: number;
+  patrolMode?: "loop" | "ping_pong";
+  cooldowns?: CooldownState;
   inventory: InventoryState;
   surroundingSQMs?: {
     northBlocked?: boolean;
