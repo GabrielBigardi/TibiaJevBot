@@ -65,7 +65,7 @@ local dirOffsets = {
   north_west = { dx = -1, dy = -1, dir = (Directions and Directions.NorthWest) or 7 },
 }
 
--- Trash items to strictly ignore
+-- Trash items to strictly ignore (never loot)
 local trashItemIds = {
   [3492] = true, -- Worms (Rotworm drop)
   [3976] = true, -- Worm
@@ -79,7 +79,52 @@ local trashItemIds = {
 }
 
 local trashKeywords = {
-  "worm", "bone", "skull", "dead rat", "empty vial", "flask", "trash"
+  "worm", "minhoca", "bone", "osso", "skull", "crânio", "cranio",
+  "dead rat", "rato morto", "empty vial", "frasco vazio", "vial", "frasco", "trash", "lixo"
+}
+
+-- Known backpack & bag item IDs (player inventory containers)
+local backpackItemIds = {
+  [1987] = true, -- Brown Bag
+  [1988] = true, -- Backpack
+  [1998] = true, -- Green Backpack
+  [1999] = true, -- Yellow Backpack
+  [2000] = true, -- Red Backpack
+  [2001] = true, -- Purple Backpack
+  [2002] = true, -- Blue Backpack
+  [2003] = true, -- Grey Backpack
+  [2004] = true, -- Golden Backpack
+  [2853] = true, -- Red Bag
+  [2854] = true, -- Green Bag
+  [3940] = true, -- Demon Backpack
+  [5926] = true, -- Pirate Backpack
+  [5927] = true, -- Pirate Bag
+  [7342] = true, -- Fur Backpack
+  [7343] = true, -- Fur Bag
+  [9774] = true, -- Dragon Backpack
+  [10518] = true, -- Minotaur Backpack
+  [11237] = true, -- Heart Backpack
+  [11238] = true, -- Expedition Backpack
+  [11241] = true, -- Crown Backpack
+  [11242] = true, -- Moon Backpack
+}
+
+local playerContainerKeywords = {
+  "backpack", "mochila", "bag", "bolsa", "quiver", "aljava",
+  "depot", "deposito", "locker", "armario", "inbox", "caixa de correio",
+  "parcel", "pacote", "stash", "store"
+}
+
+local corpseKeywords = {
+  -- English
+  "dead", "slain", "remains", "body", "corpse",
+  -- Portuguese (PT-BR)
+  "morto", "morta", "corpo", "restos",
+  -- Common creature names (EN & PT-BR)
+  "rotworm", "rat", "rato", "snake", "cobra", "troll", "orc",
+  "dragon", "dragao", "cyclops", "ciclope", "minotaur", "minotauro",
+  "skeleton", "esqueleto", "slime", "spider", "aranha", "wolf", "lobo",
+  "bear", "urso", "ghoul", "larva", "scarab", "escaravelho", "wasp", "vespa"
 }
 
 -- Forward declarations
@@ -87,7 +132,8 @@ local showWindow, hideWindow, toggleWindow, startBot, stopBot, toggleBot
 local runTick, executeActions, autoWalkTo, safeWalk, lootCorpseAt, isTileWalkable
 local addCurrentWaypoint, clearWaypoints, skipWaypoint, updateWaypointLabel
 local cycleVocation, applyVocationDefaults, generateCavePatrol
-local lootOpenContainers, isItemValuable, cyclePatrolMode, advanceWaypoint
+local lootOpenContainers, isItemValuable, isCorpseContainer, isPlayerContainer, findLootDestination
+local cyclePatrolMode, advanceWaypoint
 
 local function safeCall(obj, method, fallback)
   if obj and obj[method] and type(obj[method]) == "function" then
@@ -100,55 +146,118 @@ end
 function isItemValuable(item)
   if not item then return false end
   local id = safeCall(item, "getId", 0)
+
+  -- 1. Strictly ignore known trash items (worms, bones, skulls, empty vials)
   if trashItemIds[id] then
     return false
   end
 
   local name = safeCall(item, "getName", ""):lower()
-  for _, trash in ipairs(trashKeywords) do
-    if name:find(trash) then
+  if name ~= "" then
+    for _, trash in ipairs(trashKeywords) do
+      if name:find(trash) then
+        return false
+      end
+    end
+  end
+
+  -- 2. Any non-trash item in a corpse is valuable loot!
+  -- (Gold coins, creature products, equipment, food, gems in both PT-BR & EN)
+  return true
+end
+
+function isCorpseContainer(container)
+  if not container then return false end
+
+  -- 1. If it has a parent container, it is a sub-container inside an inventory item, NEVER a corpse!
+  if safeCall(container, "hasParent", false) then
+    return false
+  end
+
+  local cName = safeCall(container, "getName", ""):lower()
+
+  -- 2. Player inventory container names are NEVER corpses (EN and PT-BR)
+  for _, kw in ipairs(playerContainerKeywords) do
+    if cName:find(kw) then
       return false
     end
   end
 
-  -- 1. All currency coins (Gold, Platinum, Crystal)
-  if id == 3031 or id == 2148 or id == 3035 or id == 2152 or id == 3043 or id == 2160 then
+  -- 3. Known backpack/bag item IDs are NEVER corpses
+  local cItem = safeCall(container, "getContainerItem", nil)
+  if cItem then
+    if safeCall(cItem, "isBackpack", false) then
+      return false
+    end
+    local id = safeCall(cItem, "getId", 0)
+    if backpackItemIds[id] then
+      return false
+    end
+  end
+
+  -- 4. Positive corpse signature (English and PT-BR)
+  if safeCall(container, "isCorpse", false) then
     return true
   end
 
-  -- 2. Rotworm & cave equipment and valuable products
-  if id == 3286 or id == 2398 or -- Mace
-     id == 3264 or id == 2376 or -- Sword
-     id == 3374 or id == 2480 or -- Legion Helmet
-     id == 3430 or id == 2530 or -- Copper Shield
-     id == 3577 or id == 2666 or -- Meat
-     id == 3582 or id == 2671 or -- Ham
-     id == 9690                 then -- Lump of Dirt (creature product)
-    return true
-  end
-
-  -- 3. Valuable item names (weapons, armor, gems, creature products)
-  local valuableKeywords = {
-    "coin", "gold", "platinum", "crystal",
-    "sword", "mace", "axe", "club", "dagger", "bow", "wand", "rod",
-    "helmet", "armor", "shield", "legs", "boots",
-    "ring", "amulet", "necklace",
-    "ruby", "emerald", "diamond", "sapphire", "amethyst", "pearl",
-    "meat", "ham", "mushroom",
-    "fang", "dirt", "pelt", "essence", "scale", "eye", "tail", "tooth"
-  }
-  for _, kw in ipairs(valuableKeywords) do
-    if name:find(kw) then
+  for _, kw in ipairs(corpseKeywords) do
+    if cName:find(kw) then
       return true
     end
   end
 
-  -- 4. Stackable items that are not in trash list
-  if safeCall(item, "isStackable", false) then
-    return true
+  return false
+end
+
+function isPlayerContainer(container)
+  if not container then return false end
+  return not isCorpseContainer(container)
+end
+
+function findLootDestination()
+  local player = g_game.getLocalPlayer()
+  if not player then return nil end
+
+  local containers = safeCall(g_game, "getContainers", nil)
+  if containers then
+    -- Priority 1: Check all open player containers for available space
+    for _, c in pairs(containers) do
+      if isPlayerContainer(c) then
+        local count = safeCall(c, "getItemsCount", 0)
+        local cap = safeCall(c, "getCapacity", 20)
+        if count < cap then
+          -- This container has available space!
+          local destPos = safeCall(c, "getSlotPosition", nil, count)
+          if not destPos then
+            destPos = { x = 65535, y = 64 + c:getId(), z = count }
+          end
+          return destPos, c
+        end
+      end
+    end
+
+    -- Priority 2: All open player containers are full! Check for an unopened sub-backpack inside them
+    for _, c in pairs(containers) do
+      if isPlayerContainer(c) then
+        local items = safeCall(c, "getItems", {})
+        for _, item in ipairs(items) do
+          if safeCall(item, "isContainer", false) or backpackItemIds[safeCall(item, "getId", 0)] then
+            -- Open sub-container inside the full container
+            pcall(function() g_game.open(item, c) end)
+          end
+        end
+      end
+    end
   end
 
-  return false
+  -- Priority 3: If no player containers are open, open the player's equipped backpack
+  local backItem = safeCall(player, "getInventoryItem", nil, (InventorySlotBack or 3))
+  if backItem then
+    pcall(function() g_game.use(backItem) end)
+  end
+
+  -- Priority 4: Fallback to equipped backpack slot
+  return { x = 65535, y = (InventorySlotBack or 3), z = 0 }, nil
 end
 
 function lootOpenContainers()
@@ -158,43 +267,8 @@ function lootOpenContainers()
   local player = g_game.getLocalPlayer()
   if not player then return end
 
-  local pPos = player:getPosition()
-  local backpackDest = { x = 65535, y = (InventorySlotBack or 3), z = 0 }
-  local backItem = safeCall(player, "getInventoryItem", nil, (InventorySlotBack or 3))
-
   for _, container in pairs(containers) do
-    local isCorpse = false
-    local cItem = safeCall(container, "getContainerItem", nil)
-
-    -- Guard 1: Never loot the player's worn backpack
-    if cItem and backItem and cItem == backItem then
-      isCorpse = false
-    -- Guard 2: Never loot child containers inside another container (nested bags)
-    elseif safeCall(container, "hasParent", false) then
-      isCorpse = false
-    else
-      -- Check container position
-      local pos = cItem and safeCall(cItem, "getPosition", nil)
-      -- Guard 3: In Tibia protocol, inventory / equipment items have pos.x == 65535
-      if pos and pos.x == 65535 then
-        isCorpse = false
-      elseif pos and pos.x < 65000 and pPos and pos.z == pPos.z then
-        -- Container is physically located on the map floor near the player
-        local dist = math.max(math.abs(pPos.x - pos.x), math.abs(pPos.y - pos.y))
-        if dist <= 2 then
-          local cName = safeCall(container, "getName", ""):lower()
-          -- Strictly match monster corpses / slain bodies (NEVER "bag" or "chest")
-          if safeCall(container, "isCorpse", false) or
-             cName:find("dead ") or cName:find("slain ") or cName:find("remains") or
-             cName:find("body of") or cName:find("corpse") or
-             cName:find("rotworm") or cName:find("rat") or cName:find("skeleton") then
-            isCorpse = true
-          end
-        end
-      end
-    end
-
-    if isCorpse then
+    if isCorpseContainer(container) then
       local items = safeCall(container, "getItems", {})
       local itemsToLoot = {}
 
@@ -204,11 +278,20 @@ function lootOpenContainers()
         end
       end
 
-      -- Loot valuable items into backpack
+      -- Loot up to 2 valuable items per tick into player's available container
+      local lootedCount = 0
       for _, item in ipairs(itemsToLoot) do
-        local count = safeCall(item, "getCount", 1)
-        g_game.move(item, backpackDest, count)
-        print(string.format("[JevBot] Auto-looted: %s (x%d)", safeCall(item, "getName", "Valuable Item"), count))
+        local destPos, targetContainer = findLootDestination()
+        if destPos then
+          local count = safeCall(item, "getCount", 1)
+          g_game.move(item, destPos, count)
+          local cName = targetContainer and safeCall(targetContainer, "getName", "backpack") or "backpack"
+          print(string.format("[JevBot] Auto-looted: %s (x%d) -> %s", safeCall(item, "getName", "Valuable Item"), count, cName))
+          lootedCount = lootedCount + 1
+          if lootedCount >= 2 then
+            break
+          end
+        end
       end
 
       -- Once all valuables have been looted (or container only has trash like worms/bones), close it!
