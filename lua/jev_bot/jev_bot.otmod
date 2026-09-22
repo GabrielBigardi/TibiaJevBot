@@ -1,0 +1,9 @@
+Module
+  name: jev_bot
+  description: Autonomous Jev System One Bot Bridge
+  author: Antigravity
+  website: https://typesafe.ai
+  sandboxed: false
+  scripts: [ jev_bot ]
+  @onLoad: init()
+  @onUnload: terminate()

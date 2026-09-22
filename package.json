@@ -1,0 +1,32 @@
+{
+  "name": "jev-tibia-bot",
+  "version": "1.0.0",
+  "description": "Autonomous Tibia 8.60 bot decision engine powered by TypeSafe AI's Jev System One model",
+  "type": "module",
+  "main": "./dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "tsx src/server.ts",
+    "simulate": "tsx src/simulator/mockGameHarness.ts",
+    "test": "tsx test/tibia.test.ts"
+  },
+  "keywords": [
+    "tibia",
+    "otclient",
+    "typesafe-ai",
+    "jev",
+    "system-one",
+    "gaming-bot"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@typesafe-ai/sdk": "^0.6.0",
+    "dotenv": "^18.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "tsx": "^4.23.15",
+    "typescript": "^5.8.2"
+  }
+}

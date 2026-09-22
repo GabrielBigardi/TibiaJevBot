@@ -1,0 +1,161 @@
+MainWindow
+  id: jevBotWindow
+  !text: tr('Jev AI Bot (Cavebot & Combat)')
+  size: 340 395
+  @onEscape: modules.jev_bot.hide()
+
+  Label
+    id: statusLabel
+    !text: tr('Status: Idle')
+    anchors.top: parent.top
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 4
+    text-align: center
+
+  Label
+    id: macroLabel
+    !text: tr('State: IDLE')
+    anchors.top: statusLabel.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 4
+    text-align: center
+    color: #66ccff
+
+  Label
+    id: decisionLabel
+    !text: tr('Action: None')
+    anchors.top: macroLabel.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 4
+    text-align: center
+
+  Label
+    id: waypointLabel
+    !text: tr('Waypoints: 0')
+    anchors.top: decisionLabel.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 4
+    text-align: center
+    color: #a0ffa0
+
+  Label
+    id: lootLabel
+    !text: tr('Loot: Valuables only (Skips trash)')
+    anchors.top: waypointLabel.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 4
+    text-align: center
+    color: #ffd700
+
+  Label
+    id: vocLabel
+    !text: tr('Vocation:')
+    anchors.top: lootLabel.bottom
+    anchors.left: parent.left
+    margin-top: 8
+    width: 80
+
+  Button
+    id: vocationButton
+    !text: tr('Knight')
+    anchors.top: lootLabel.bottom
+    anchors.left: vocLabel.right
+    anchors.right: parent.right
+    margin-top: 6
+    margin-left: 4
+    height: 22
+    @onClick: modules.jev_bot.cycleVocation()
+
+  Label
+    id: healLabel
+    !text: tr('Heal Spell:')
+    anchors.top: vocationButton.bottom
+    anchors.left: parent.left
+    margin-top: 8
+    width: 80
+
+  TextEdit
+    id: healSpellEdit
+    !text: tr('exura ico')
+    anchors.top: vocationButton.bottom
+    anchors.left: healLabel.right
+    anchors.right: parent.right
+    margin-top: 6
+    margin-left: 4
+    height: 22
+
+  Label
+    id: atkLabel
+    !text: tr('Atk Spell:')
+    anchors.top: healSpellEdit.bottom
+    anchors.left: parent.left
+    margin-top: 8
+    width: 80
+
+  TextEdit
+    id: atkSpellEdit
+    !text: tr('exori ico')
+    anchors.top: healSpellEdit.bottom
+    anchors.left: atkLabel.right
+    anchors.right: parent.right
+    margin-top: 6
+    margin-left: 4
+    height: 22
+
+  Button
+    id: addWpButton
+    !text: tr('+ Add WP (Ctrl+W)')
+    anchors.top: atkSpellEdit.bottom
+    anchors.left: parent.left
+    anchors.right: parent.horizontalCenter
+    margin-top: 8
+    margin-right: 2
+    height: 24
+    @onClick: modules.jev_bot.addCurrentWaypoint()
+
+  Button
+    id: skipWpButton
+    !text: tr('Skip WP')
+    anchors.top: atkSpellEdit.bottom
+    anchors.left: parent.horizontalCenter
+    anchors.right: parent.right
+    margin-top: 8
+    margin-left: 2
+    margin-right: 70
+    height: 24
+    @onClick: modules.jev_bot.skipWaypoint()
+
+  Button
+    id: clearWpButton
+    !text: tr('Clear')
+    anchors.top: atkSpellEdit.bottom
+    anchors.left: skipWpButton.right
+    anchors.right: parent.right
+    margin-top: 8
+    margin-left: 2
+    height: 24
+    @onClick: modules.jev_bot.clearWaypoints()
+
+  Button
+    id: toggleButton
+    !text: tr('Start Jev Bot')
+    anchors.top: addWpButton.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+    height: 30
+    @onClick: modules.jev_bot.toggleBot()
+
+  Button
+    id: closeButton
+    !text: tr('Close')
+    anchors.bottom: parent.bottom
+    anchors.right: parent.right
+    width: 70
+    height: 24
+    @onClick: modules.jev_bot.hide()
