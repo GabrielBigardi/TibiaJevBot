@@ -72,14 +72,14 @@ npm start
 
 ---
 
-## 🎮 Connecting to OTClient (Real 8.60 Server)
+## 🎮 Connecting to OTClient (Real Server)
 
 1. **Locate your OTClient directory** (e.g. `otclient-v8` or standard `otclient`).
 2. **Copy the module**:
    ```bash
    cp -r lua/jev_bot <your_otclient_path>/modules/
    ```
-3. **Launch OTClient** and log in to your 8.60 OTServ.
+3. **Launch OTClient** and log in to your OTServ.
 4. Click the **"Jev AI Bot"** button on the top menu (or open the module) and click **"Start Jev Bot"**.
 5. The bot will begin streaming ticks to `http://localhost:3000/tick` and executing Jev's decisions!
 
