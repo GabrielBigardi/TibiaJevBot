@@ -1,4 +1,4 @@
-# 🛡️ Jev Tibia 8.60 Autonomous Bot
+# 🛡️ Jev Tibia Autonomous Bot
 
 An autonomous game-playing decision engine for **Tibia (Open Tibia / OTServ)** powered by **TypeSafe AI's Jev** System One model.
 
@@ -10,7 +10,7 @@ Unlike conversational LLMs that take 2-3 seconds to generate text, Jev returns *
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│               OTClient (Tibia 8.60 Client)             │
+│               OTClient (Tibia Client)                  │
 │                                                        │
 │  lua/jev_bot/jev_bot.lua                               │
 │  - Polls g_game and g_map every 250ms                  │
